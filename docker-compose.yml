@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  nifi:
+    image: apache/nifi:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/nifi:/opt/nifi/nifi-current
+    environment:
+      - NIFI_WEB_HTTP_PORT=8080
+      - NIFI_CLUSTER_IS_NODE=true
+    networks:
+      - etl-network
+
+  spark:
+    image: bitnami/spark:3.3.1
+    ports:
+      - "4040:4040"
+    volumes:
+      - ./data_pipeline/transform/spark_jobs:/jobs
+    environment:
+      - SPARK_MODE=master
+    networks:
+      - etl-network
+
+  airflow:
+    build: .
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./data/airflow:/airflow
+      - ./data_pipeline/orchestration/dags:/airflow/dags
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    depends_on:
+      - postgres
+    networks:
+      - etl-network
+
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - etl-network
+
+  minio:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./data/minio:/data
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE
+      - MINIO_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    networks:
+      - etl-network
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    networks:
+      - etl-network
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - etl-network
+
+networks:
+  etl-network:
+    driver: bridge

@@ -1,0 +1,108 @@
+---
+- name: Configure ETL cluster
+  hosts: all
+  become: yes
+  vars:
+    minio_access_key: "AKIAIOSFODNN7EXAMPLE"
+    minio_secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    postgres_password: "etlpassword123"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install common packages
+      apt:
+        name:
+          - python3-pip
+          - openjdk-11-jdk
+          - docker.io
+          - docker-compose-plugin
+          - unzip
+          - htop
+        state: present
+
+    - name: Add current user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Create data directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+      loop:
+        - /data/nifi
+        - /data/minio
+        - /data/postgres
+        - /data/spark
+        - /data/airflow
+
+    - name: Install MinIO server
+      ansible.builtin.get_url:
+        url: https://dl.min.io/server/minio/release/linux-amd64/minio
+        dest: /usr/local/bin/minio
+        mode: '0755'
+
+    - name: Install MinIO client
+      ansible.builtin.get_url:
+        url: https://dl.min.io/client/mc/release/linux-amd64/mc
+        dest: /usr/local/bin/mc
+        mode: '0755'
+
+    - name: Configure MinIO systemd service
+      template:
+        src: templates/minio.service.j2
+        dest: /etc/systemd/system/minio.service
+      notify: reload systemd
+
+    - name: Start MinIO service
+      service:
+        name: minio
+        state: started
+        enabled: yes
+
+    - name: Configure MinIO client
+      shell: |
+        mc alias set local http://127.0.0.1:9000 {{ minio_access_key }} {{ minio_secret_key }}
+        mc mb local/raw-data
+        mc mb local/processed-data
+        mc mb local/analytics
+      environment:
+        MINIO_ACCESS_KEY: "{{ minio_access_key }}"
+        MINIO_SECRET_KEY: "{{ minio_secret_key }}"
+
+    - name: Install Prometheus Node Exporter
+      ansible.builtin.get_url:
+        url: https://github.com/prometheus/node_exporter/releases/download/v1.5.0/node_exporter-1.5.0.linux-amd64.tar.gz
+        dest: /tmp/node_exporter.tar.gz
+
+    - name: Extract Node Exporter
+      unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /opt/
+        remote_src: yes
+        extra_opts: ["--strip-components=1"]
+
+    - name: Configure Node Exporter service
+      template:
+        src: templates/node_exporter.service.j2
+        dest: /etc/systemd/system/node_exporter.service
+      notify: reload systemd
+
+    - name: Start Node Exporter
+      service:
+        name: node_exporter
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes

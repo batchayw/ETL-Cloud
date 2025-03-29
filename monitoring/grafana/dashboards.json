@@ -1,0 +1,143 @@
+{
+    "dashboard": {
+      "title": "ETL Pipeline Monitoring",
+      "panels": [
+        {
+          "title": "Pipeline Execution Status",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "count(airflow_dagrun{state='running'})",
+              "legendFormat": "Running"
+            },
+            {
+              "expr": "count(airflow_dagrun{state='failed'})",
+              "legendFormat": "Failed"
+            },
+            {
+              "expr": "count(airflow_dagrun{state='success'})",
+              "legendFormat": "Success"
+            }
+          ],
+          "gridPos": {"x": 0, "y": 0, "w": 12, "h": 6}
+        },
+        {
+          "title": "Resource Usage",
+          "type": "row",
+          "panels": [
+            {
+              "title": "CPU Usage",
+              "type": "graph",
+              "datasource": "Prometheus",
+              "targets": [
+                {
+                  "expr": "100 - (avg by (instance) (irate(node_cpu_seconds_total{mode='idle'}[5m])) * 100",
+                  "legendFormat": "{{instance}}"
+                }
+              ],
+              "gridPos": {"x": 0, "y": 6, "w": 6, "h": 6}
+            },
+            {
+              "title": "Memory Usage",
+              "type": "graph",
+              "datasource": "Prometheus",
+              "targets": [
+                {
+                  "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100",
+                  "legendFormat": "{{instance}}"
+                }
+              ],
+              "gridPos": {"x": 6, "y": 6, "w": 6, "h": 6}
+            }
+          ]
+        },
+        {
+          "title": "ETL Performance Metrics",
+          "type": "row",
+          "panels": [
+            {
+              "title": "Processing Time",
+              "type": "graph",
+              "datasource": "Prometheus",
+              "targets": [
+                {
+                  "expr": "airflow_task_duration{task_id='clean_raw_data'}",
+                  "legendFormat": "Cleaning"
+                },
+                {
+                  "expr": "airflow_task_duration{task_id='enrich_clean_data'}",
+                  "legendFormat": "Enrichment"
+                }
+              ],
+              "gridPos": {"x": 0, "y": 12, "w": 6, "h": 6}
+            },
+            {
+              "title": "Records Processed",
+              "type": "graph",
+              "datasource": "Prometheus",
+              "targets": [
+                {
+                  "expr": "spark_metrics_records_processed_total",
+                  "legendFormat": "Records"
+                }
+              ],
+              "gridPos": {"x": 6, "y": 12, "w": 6, "h": 6}
+            }
+          ]
+        },
+        {
+          "title": "Data Quality Metrics",
+          "type": "row",
+          "panels": [
+            {
+              "title": "DQ Check Results",
+              "type": "piechart",
+              "datasource": "Prometheus",
+              "targets": [
+                {
+                  "expr": "sum by (check_name) (dq_checks_passed)",
+                  "legendFormat": "{{check_name}}"
+                }
+              ],
+              "gridPos": {"x": 0, "y": 18, "w": 6, "h": 6}
+            },
+            {
+              "title": "Null Values",
+              "type": "graph",
+              "datasource": "Prometheus",
+              "targets": [
+                {
+                  "expr": "dq_checks_null_values",
+                  "legendFormat": "Nulls"
+                }
+              ],
+              "gridPos": {"x": 6, "y": 18, "w": 6, "h": 6}
+            }
+          ]
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "environment",
+            "label": "Environment",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up, environment)"
+          },
+          {
+            "name": "instance",
+            "label": "Instance",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(node_cpu_seconds_total, instance)"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      }
+    }
+  }

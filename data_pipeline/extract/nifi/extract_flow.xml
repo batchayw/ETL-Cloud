@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<flow xmlns="http://nifi.apache.org">
+    <processGroup id="extract-group">
+        <!-- API Extraction -->
+        <processor id="fetch-api-data" class="org.apache.nifi.processors.standard.InvokeHTTP">
+            <property name="HTTP Method">GET</property>
+            <property name="Remote URL">https://api.william.com/data</property>
+            <property name="Content-Type">application/json</property>
+            <property name="SSL Context Service">SSL-Service</property>
+            <property name="Attributes to Send">filename</property>
+        </processor>
+        
+        <!-- Database Extraction -->
+        <processor id="extract-db" class="org.apache.nifi.processors.standard.ExecuteSQL">
+            <property name="Database Connection Pooling Service">PostgreSQL-Pool</property>
+            <property name="SQL select query">SELECT * FROM source_data WHERE updated_at > ${last_execution}</property>
+        </processor>
+        
+        <!-- File Processing -->
+        <processor id="process-files" class="org.apache.nifi.processors.standard.GetFile">
+            <property name="Input Directory">/data/incoming</property>
+            <property name="File Filter">.*\.(csv|json|parquet)</property>
+        </processor>
+        
+        <!-- Route Content -->
+        <processor id="route-content" class="org.apache.nifi.processors.standard.RouteOnContent">
+            <property name="Route Strategy">Route to Property name</property>
+            <property name="Match Property">data_type</property>
+        </processor>
+        
+        <!-- Store to MinIO -->
+        <processor id="store-raw" class="org.apache.nifi.processors.standard.PutFile">
+            <property name="Directory">/data/nifi/raw</property>
+            <property name="Conflict Resolution Strategy">replace</property>
+        </processor>
+        
+        <!-- Connections -->
+        <connection id="api-to-route" sourceId="fetch-api-data" destinationId="route-content"/>
+        <connection id="db-to-route" sourceId="extract-db" destinationId="route-content"/>
+        <connection id="file-to-route" sourceId="process-files" destinationId="route-content"/>
+        <connection id="route-to-store" sourceId="route-content" destinationId="store-raw"/>
+    </processGroup>
+</flow>

@@ -1,0 +1,47 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'production'
+    team: 'data_engineering'
+
+rule_files:
+  - '/etc/prometheus/rules/*.rules'
+
+scrape_configs:
+  - job_name: 'etl-nodes'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '(.*):\d+'
+        replacement: '${1}'
+
+  - job_name: 'etl-services'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets:
+        - 'nifi:9090'
+        - 'airflow:8080'
+        - 'spark-master:4040'
+        - 'postgres:9187'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        regex: '(.*?)(:|\z)'
+        replacement: '${1}'
+
+  - job_name: 'etl-processes'
+    static_configs:
+      - targets: ['process-exporter:9256']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: job
+        regex: '(.*):\d+'
+        replacement: '${1}'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']

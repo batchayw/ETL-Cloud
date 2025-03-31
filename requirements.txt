@@ -52,3 +52,6 @@ kubernetes==24.2.0
 # Infrastructure
 ansible==7.4.0
 terraform==1.4.6
+
+# Autres
+boto3==1.26.0

@@ -1,0 +1,20 @@
+route:
+  receiver: 'rollback-team'
+  group_by: ['alertname']
+  routes:
+  - match:
+      severity: 'critical'
+    receiver: 'rollback-automation'
+    continue: false
+
+receivers:
+- name: 'rollback-team'
+  slack_configs:
+  - api_url: 'https://hooks.slack.com/services/william/XXXXXXXXXXXXXXXXXXXXXXXX'
+    channel: '#etl-alerts'
+    send_resolved: true
+
+- name: 'rollback-automation'
+  webhook_configs:
+  - url: 'http://rollback-service:5000/trigger'
+    send_resolved: false

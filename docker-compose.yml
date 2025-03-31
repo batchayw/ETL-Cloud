@@ -1,29 +1,50 @@
 version: '3.8'
 
 services:
+  # Service NiFi
   nifi:
     image: apache/nifi:latest
     ports:
       - "8080:8080"
     volumes:
       - ./data/nifi:/opt/nifi/nifi-current
+      - ./data_pipeline/extract/nifi:/opt/nifi/nifi-current/extract_flows
     environment:
       - NIFI_WEB_HTTP_PORT=8080
       - NIFI_CLUSTER_IS_NODE=true
+      - NIFI_SENSITIVE_PROPS_KEY=supersecretkey
     networks:
       - etl-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/nifi-api/system-diagnostics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
+  # Service Spark
   spark:
     image: bitnami/spark:3.3.1
     ports:
       - "4040:4040"
+      - "7077:7077" # Spark master port
     volumes:
       - ./data_pipeline/transform/spark_jobs:/jobs
+      - ./data/spark:/data
     environment:
       - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+      - SPARK_SSL_ENABLED=no
     networks:
       - etl-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
 
+  # Service Airflow
   airflow:
     build: .
     ports:
@@ -31,26 +52,45 @@ services:
     volumes:
       - ./data/airflow:/airflow
       - ./data_pipeline/orchestration/dags:/airflow/dags
+      - ./data_pipeline:/data_pipeline
+      - ./logs:/airflow/logs
     environment:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=supersecretkey
+      - AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL=60
     depends_on:
       - postgres
+      - redis
     networks:
       - etl-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
+  # Service PostgreSQL
   postgres:
     image: postgres:13
     environment:
       - POSTGRES_USER=airflow
       - POSTGRES_PASSWORD=airflow
       - POSTGRES_DB=airflow
+      - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+      - ./data_pipeline/load:/docker-entrypoint-initdb.d
     networks:
       - etl-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
+  # Service MinIO
   minio:
     image: minio/minio
     ports:
@@ -58,34 +98,138 @@ services:
       - "9001:9001"
     volumes:
       - ./data/minio:/data
+      - ./data_pipeline/extract/minio_config:/root/.mc
     command: server /data --console-address ":9001"
     environment:
       - MINIO_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE
       - MINIO_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password123
     networks:
       - etl-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
+  # Service Prometheus
   prometheus:
     image: prom/prometheus
     ports:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
     networks:
       - etl-network
 
+  # Service Redis (pour Airflow)
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - etl-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Service ELK (Elasticsearch)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.5.1
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - etl-network
+
+  # Service ELK (Logstash)
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.5.1
+    volumes:
+      - ./monitoring/elk/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    environment:
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+    depends_on:
+      - elasticsearch
+    networks:
+      - etl-network
+
+  # Service ELK (Kibana)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.5.1
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - etl-network
+
+ # Service Grafana
   grafana:
     image: grafana/grafana
     ports:
       - "3000:3000"
     volumes:
       - ./monitoring/grafana:/var/lib/grafana
+      - ./monitoring/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
     depends_on:
       - prometheus
+      - elasticsearch
     networks:
       - etl-network
+
+  # Service pour les alertes
+  alertmanager:
+    image: prom/alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    networks:
+      - etl-network
+
+  # Service pour le rollback
+  rollback-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.rollback
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./rollback:/app/rollback
+    environment:
+      - AIRFLOW_API_URL=http://airflow:8080/api/v1
+      - AIRFLOW_API_USERNAME=admin
+      - AIRFLOW_API_PASSWORD=admin
+    networks:
+      - etl-network
+
+volumes:
+  prometheus_data:
+  redis_data:
+  elasticsearch_data:
+  minio_data:
+  postgres_data:
 
 networks:
   etl-network:

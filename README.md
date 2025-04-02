@@ -1,4 +1,5 @@
 # ETL-Cloud
+Le projet ETL-Cloud est une solution complète pour l'extraction, transformation et chargement de données dans un environnement cloud. L'architecture est conçue pour être scalable, fiable et facile à maintenir.
 
 ## Technologies utilisées
 - ***Extract (E)***: Apache NiFi
@@ -62,7 +63,7 @@ etl-cloud-project/
 │   │   │   ├── source_config.json # Connexion aux sources de données  
 │   │   │   ├── destination_config.json # Configuration du stockage  
 │   ├── transform/                 # Transformation des données  
-│   │   ├── dbt_project/           # Modèles de transformation avec dbt  
+│   │   ├── dbt_project/           # Modèles de transformation avec dbt  (si utilisé)
 │   │   │   ├── models/            # Modèles SQL  
 │   │   │   ├── seeds/             # Données statiques pour enrichissement  
 │   │   │   ├── dbt_project.yml    # Configuration du projet dbt  
@@ -91,7 +92,7 @@ etl-cloud-project/
 │   │   ├── rollback_queries.sql    # Requêtes pour restaurer l’état précédent  
 │   ├── storage/                   # Rollback des fichiers stockés  
 │   │   ├── rollback_s3.py         # Restauration depuis MinIO  
-│   │   ├── rollback_gcs.py        # Restauration depuis Google Cloud Storage  
+│   │   ├── rollback_gcs.py        # Restauration depuis Google Cloud Storage  (si utilisé)
 │   ├── monitoring/                # Détection des erreurs et rollback  
 │   │   ├── alertmanager.yml       # Configuration d’Alertmanager pour rollback  
 │   │   ├── rollback_notifier.py   # Script pour déclencher le rollback en cas d’alerte  
@@ -112,3 +113,6 @@ etl-cloud-project/
 ```
 ## Auteur 
 - William BATCHAYON (@batchayw)
+
+## Astus
+Les variables d'environnement sont préconfigurées avec des valeurs par défaut mais peuvent être surchargées via un fichier `.env`.
